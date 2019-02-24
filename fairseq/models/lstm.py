@@ -16,6 +16,8 @@ from . import (
     register_model_architecture,
 )
 
+from pytorch_pretrained_bert import BertForPreTraining
+
 
 @register_model('lstm')
 class LSTMModel(FairseqModel):
@@ -73,7 +75,13 @@ class LSTMModel(FairseqModel):
                             help='dropout probability for decoder input embedding')
         parser.add_argument('--decoder-dropout-out', type=float, metavar='D',
                             help='dropout probability for decoder output')
-        # fmt: on
+        # bert
+        parser.add_argument('--bert-base', type=str, metavar='STR',
+                            help='base bert model')
+        parser.add_argument('--bert-finetune', type=str, metavar='STR',
+                            help='finetuned bert model')
+        parser.add_argument('--layer', type=int, metavar='N',
+                            help='bert hidden layer to extract')
 
     @classmethod
     def build_model(cls, args, task):
@@ -139,6 +147,10 @@ class LSTMModel(FairseqModel):
         if args.decoder_freeze_embed:
             pretrained_decoder_embed.weight.requires_grad = False
 
+        bert_model = BertForPreTraining.from_pretrained(args.bert_base)
+        bert_model.load_state_dict(torch.load(args.bert_finetune))
+        bert = bert_model.bert
+
         encoder = LSTMEncoder(
             dictionary=task.source_dictionary,
             embed_dim=args.encoder_embed_dim,
@@ -148,6 +160,8 @@ class LSTMModel(FairseqModel):
             dropout_out=args.encoder_dropout_out,
             bidirectional=args.encoder_bidirectional,
             pretrained_embed=pretrained_encoder_embed,
+            layer=args.layer,
+            bert=bert
         )
         decoder = LSTMDecoder(
             dictionary=task.target_dictionary,
@@ -166,6 +180,7 @@ class LSTMModel(FairseqModel):
                 if args.criterion == 'adaptive_loss' else None
             ),
         )
+
         return cls(encoder, decoder)
 
 
@@ -174,7 +189,7 @@ class LSTMEncoder(FairseqEncoder):
     def __init__(
         self, dictionary, embed_dim=512, hidden_size=512, num_layers=1,
         dropout_in=0.1, dropout_out=0.1, bidirectional=False,
-        left_pad=True, pretrained_embed=None, padding_value=0.,
+        left_pad=True, pretrained_embed=None, padding_value=0., layer=11, bert=None
     ):
         super().__init__(dictionary)
         self.num_layers = num_layers
@@ -182,8 +197,10 @@ class LSTMEncoder(FairseqEncoder):
         self.dropout_out = dropout_out
         self.bidirectional = bidirectional
         self.hidden_size = hidden_size
+        self.layer = layer
 
         num_embeddings = len(dictionary)
+        self.num = num_embeddings
         self.padding_idx = dictionary.pad()
         if pretrained_embed is None:
             self.embed_tokens = Embedding(num_embeddings, embed_dim, self.padding_idx)
@@ -191,7 +208,7 @@ class LSTMEncoder(FairseqEncoder):
             self.embed_tokens = pretrained_embed
 
         self.lstm = LSTM(
-            input_size=embed_dim,
+            input_size=embed_dim + 768,
             hidden_size=hidden_size,
             num_layers=num_layers,
             dropout=self.dropout_out if num_layers > 1 else 0.,
@@ -203,6 +220,9 @@ class LSTMEncoder(FairseqEncoder):
         self.output_units = hidden_size
         if bidirectional:
             self.output_units *= 2
+        self.bert = bert
+        for param in self.bert.parameters():
+            param.requires_grad = False
 
     def forward(self, src_tokens, src_lengths):
         if self.left_pad:
@@ -217,6 +237,14 @@ class LSTMEncoder(FairseqEncoder):
 
         # embed tokens
         x = self.embed_tokens(src_tokens)
+        # bert embedding
+        segments_tensors = torch.zeros_like(src_tokens).to(src_tokens.device)
+        # self.bert.eval()
+        # with torch.no_grad():
+        encoded_layers, _ = self.bert(src_tokens, segments_tensors) # (bsz, length, dimension)
+        x = torch.cat((x, encoded_layers[self.layer]), 2)
+
+
         x = F.dropout(x, p=self.dropout_in, training=self.training)
 
         # B x T x C -> T x B x C
@@ -545,4 +573,21 @@ def lstm_luong_wmt_en_de(args):
     args.decoder_layers = getattr(args, 'decoder_layers', 4)
     args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1000)
     args.decoder_dropout_out = getattr(args, 'decoder_dropout_out', 0)
+    base_architecture(args)
+
+@register_model_architecture('lstm', 'lstm_chen_bert_en_fr')
+def lstm_chen_wmt_fr_en(args):
+    args.dropout = getattr(args, 'dropout', 0.3)
+    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
+    args.encoder_hidden_size = getattr(args, 'encoder_hidden_size', 512)
+    args.encoder_layers = getattr(args, 'encoder_layers', 2)
+    args.encoder_bidirectional = getattr(args, 'encoder_bidirectional', True)
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 512)
+    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 1024)
+    args.decoder_layers = getattr(args, 'decoder_layers', 2)
+    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 512)
+    args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', True)
+    args.bert_base = getattr(args, 'bert_base', 'bert-base-cased')
+    args.bert_finetune= getattr(args, 'bert_finetune', 'prelm/bert.bin')
+    args.layer = getattr(args, 'layer',11)
     base_architecture(args)

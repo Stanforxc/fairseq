@@ -61,9 +61,9 @@ class TranslationTask(FairseqTask):
                             help='pad the source on the left')
         parser.add_argument('--left-pad-target', default='False', type=str, metavar='BOOL',
                             help='pad the target on the left')
-        parser.add_argument('--max-source-positions', default=1024, type=int, metavar='N',
+        parser.add_argument('--max-source-positions', default=512, type=int, metavar='N',
                             help='max number of tokens in the source sequence')
-        parser.add_argument('--max-target-positions', default=1024, type=int, metavar='N',
+        parser.add_argument('--max-target-positions', default=512, type=int, metavar='N',
                             help='max number of tokens in the target sequence')
         parser.add_argument('--upsample-primary', default=1, type=int,
                             help='amount to upsample primary dataset')

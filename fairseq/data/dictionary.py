@@ -13,17 +13,16 @@ import torch
 
 class Dictionary(object):
     """A mapping from symbols to consecutive integers"""
-    def __init__(self, pad='<pad>', eos='</s>', unk='<unk>'):
+    def __init__(self, pad='[PAD]', eos='[SEP]', unk='[UNK]'):
         self.unk_word, self.pad_word, self.eos_word = unk, pad, eos
         self.symbols = []
         self.count = []
         self.indices = {}
         # dictionary indexing starts at 1 for consistency with Lua
-        self.add_symbol('<Lua heritage>')
-        self.pad_index = self.add_symbol(pad)
-        self.eos_index = self.add_symbol(eos)
-        self.unk_index = self.add_symbol(unk)
-        self.nspecial = len(self.symbols)
+        self.pad_index = 0
+        self.eos_index = 102
+        self.unk_index = 100
+        self.nspecial = 0 # '!'
 
     def __eq__(self, other):
         return self.indices == other.indices
@@ -190,6 +189,7 @@ class Dictionary(object):
             d.indices[word] = len(d.symbols)
             d.symbols.append(word)
             d.count.append(count)
+
         return d
 
     def save(self, f):
@@ -202,7 +202,7 @@ class Dictionary(object):
             print('{} {}'.format(symbol, count), file=f)
 
     def dummy_sentence(self, length):
-        t = torch.Tensor(length).uniform_(self.nspecial + 1, len(self)).long()
+        t = torch.Tensor(length).uniform_(self.index('!'), len(self)).long()
         t[-1] = self.eos()
         return t
 

@@ -232,7 +232,7 @@ def main(args):
                 print("{} {}".format(src_dict[k], tgt_dict[v]), file=f)
 
 
-def binarize(args, filename, dict, output_prefix, lang, offset, end, append_eos=True):
+def binarize(args, filename, dict, output_prefix, lang, offset, end, append_eos=False):
     ds = indexed_dataset.IndexedDatasetBuilder(
         dataset_dest_file(args, output_prefix, lang, "bin")
     )
